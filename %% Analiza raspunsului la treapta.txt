@@ -1,0 +1,287 @@
+%% Analiza raspunsului la treapta
+
+clear
+close all
+clc
+
+%% Incarcarea iesirii masurate
+
+date_treapta = load("dateDCM.mat")
+iesire_masurata = date_treapta.y
+iesire_masurata = iesire_masurata(:)
+
+%% Definirea perioadei de esantionare si a intrarii
+
+perioada_esantionare = 0.01
+
+intrare = vertcat( ...
+    zeros(30, 1), ...
+    0.7 * ones(70, 1), ...
+    zeros(30, 1), ...
+    0.4 * ones(70, 1), ...
+    zeros(30, 1), ...
+    -0.5 * ones(70, 1), ...
+    zeros(30, 1))
+
+% Pastrez doar esantioanele disponibile atat pentru intrare, cat si pentru iesire
+numar_esantioane = min(numel(intrare), numel(iesire_masurata))
+
+intrare = intrare(1:numar_esantioane)
+iesire_masurata = iesire_masurata(1:numar_esantioane)
+
+timp = (0:numar_esantioane-1)' * perioada_esantionare
+
+%% Alegerea datelor pentru identificare
+
+moment_inceput_treapta = 0.30
+moment_inceput_validare = 1.30
+amplitudine_treapta = 0.7
+
+% Identificarea foloseste prima treapta si raspunsul ei
+date_identificare = timp < moment_inceput_validare
+
+timp_identificare = timp(date_identificare)
+iesire_identificare = iesire_masurata(date_identificare)
+
+%% Calculul nivelurilor initial si final
+
+date_nivel_initial = timp_identificare < moment_inceput_treapta
+
+date_nivel_final = timp_identificare >= 0.90 & ...
+                   timp_identificare < 1.00
+
+nivel_initial = mean(iesire_identificare(date_nivel_initial))
+nivel_final = mean(iesire_identificare(date_nivel_final))
+
+%% Estimarea castigului si a constantei de timp
+
+K_sistem = (nivel_final - nivel_initial) / amplitudine_treapta
+
+variatie_iesire = nivel_final - nivel_initial
+nivel_prag_63 = nivel_initial + 0.632 * variatie_iesire
+
+% Caut pragul numai dupa momentul aplicarii primei trepte
+indici_dupa_treapta = find(timp_identificare >= moment_inceput_treapta)
+sens_variatie = sign(variatie_iesire)
+
+pozitie_prag = find( ...
+    sens_variatie * ...
+    (iesire_identificare(indici_dupa_treapta) - nivel_initial) >= ...
+    0.632 * abs(variatie_iesire), 1)
+
+if isempty(pozitie_prag)
+    error('Pragul de 63.2%% nu a fost atins in datele de identificare.')
+end
+
+indice_prag = indici_dupa_treapta(pozitie_prag)
+moment_atingere_prag = timp_identificare(indice_prag)
+
+constanta_timp = moment_atingere_prag - moment_inceput_treapta
+
+%% Construirea functiei de transfer
+
+s = tf('s')
+functie_transfer = K_sistem / (constanta_timp * s + 1)
+
+disp('Castigul sistemului:')
+K_sistem
+
+disp('Constanta de timp:')
+constanta_timp
+
+disp('Functia de transfer identificata:')
+functie_transfer
+
+%% Validarea modelului cu ultimele doua trepte
+
+% Simulez raspunsul pentru intrarea completa, apoi extrag validarea.
+% In acest fel, modelul isi pastreaza starea acumulata inainte de validare.
+iesire_simulata_completa = lsim( ...
+    functie_transfer, intrare, timp)
+
+date_validare = timp >= moment_inceput_validare
+
+timp_validare = timp(date_validare)
+iesire_real_validare = iesire_masurata(date_validare)
+iesire_model_validare = iesire_simulata_completa(date_validare)
+
+eroare_medie_patratica = mean( ...
+    (iesire_real_validare - iesire_model_validare).^2)
+
+disp('Eroarea medie patratică pentru validare:')
+eroare_medie_patratica
+
+%% Graficul validarii
+
+figure
+plot(timp_validare, iesire_real_validare, 'b', ...
+     timp_validare, iesire_model_validare, 'r--', ...
+     'LineWidth', 1.2)
+title('Validarea modelului la raspunsul la treapta')
+xlabel('Timp [s]')
+ylabel('Amplitudine')
+legend('Iesire masurata', 'Iesire simulata')
+grid on
+
+
+%%
+%% Analiza raspunsului la impuls
+
+clear
+close all
+clc
+
+%% Incarcarea datelor
+
+date_timp = load("timp_impuls.mat")
+nume_camp_timp = fieldnames(date_timp)
+timp_masurat = date_timp.(nume_camp_timp{1})
+timp_masurat = timp_masurat(:)
+
+date_iesire = load("Y_impuls.mat")
+nume_camp_iesire = fieldnames(date_iesire)
+iesire_masurata = date_iesire.(nume_camp_iesire{1})
+iesire_masurata = iesire_masurata(:)
+
+% Pastrez acelasi numar de esantioane pentru timp si iesire
+numar_esantioane = min(numel(timp_masurat), numel(iesire_masurata))
+timp_masurat = timp_masurat(1:numar_esantioane)
+iesire_masurata = iesire_masurata(1:numar_esantioane)
+
+%% Reesantionarea iesirii pe o grila uniforma
+
+perioada_esantionare = mean(diff(timp_masurat))
+timp_uniform = (timp_masurat(1):perioada_esantionare:timp_masurat(end))'
+iesire_uniforma = interp1(timp_masurat, iesire_masurata, timp_uniform, 'linear')
+
+numar_esantioane_uniform = numel(timp_uniform)
+
+%% Definirea intrarii cu impulsuri
+
+nivel_intrare_initial = 0.1
+nivel_intrare_impuls = 1
+durata_impuls_esantioane = 2
+
+% Momente exemplu, separate la 3.3 secunde
+momente_impuls = [1.5 4.8 8.1]
+
+% Calculez indicii corespunzatori momentelor impulsurilor
+indici_impuls = round((momente_impuls - timp_uniform(1)) ./ ...
+                      perioada_esantionare) + 1
+
+intrare = nivel_intrare_initial * ones(numar_esantioane_uniform, 1)
+
+for numar_impuls = 1:numel(indici_impuls)
+    indice_inceput_impuls = indici_impuls(numar_impuls)
+    indice_final_impuls = indice_inceput_impuls + durata_impuls_esantioane - 1
+
+    if indice_inceput_impuls >= 1 && ...
+       indice_final_impuls <= numar_esantioane_uniform
+        intrare(indice_inceput_impuls:indice_final_impuls) = ...
+            nivel_intrare_impuls
+    else
+        warning('Impulsul %d depaseste intervalul disponibil de date.', ...
+                numar_impuls)
+    end
+end
+
+%% Identificarea modelului folosind primul impuls
+
+indice_primul_impuls = indici_impuls(1)
+
+% Estimez iesirea stationara dinaintea primului impuls
+indice_final_zona_stationara = max(1, indice_primul_impuls - 5)
+indice_inceput_zona_stationara = max(1, indice_primul_impuls - 20)
+
+iesire_stationara = mean( ...
+    iesire_uniforma(indice_inceput_zona_stationara: ...
+                    indice_final_zona_stationara))
+
+% Calculez castigul folosind intrarea de baza
+K_sistem = iesire_stationara / nivel_intrare_initial
+
+% Selectez raspunsul dintre primul si al doilea impuls
+timp_inceput_primul_impuls = momente_impuls(1)
+timp_inceput_al_doilea_impuls = momente_impuls(2)
+
+date_primul_raspuns = ...
+    timp_uniform >= timp_inceput_primul_impuls & ...
+    timp_uniform < timp_inceput_al_doilea_impuls
+
+timp_primul_raspuns = timp_uniform(date_primul_raspuns)
+iesire_primului_raspuns = iesire_uniforma(date_primul_raspuns)
+
+% Caut maximul raspunsului la primul impuls
+[valoare_maxima_iesire, indice_maxim_local] = ...
+    max(iesire_primului_raspuns)
+
+variatie_maxima_iesire = valoare_maxima_iesire - iesire_stationara
+
+if variatie_maxima_iesire <= 0
+    error('Primul impuls nu a produs o crestere detectabila a iesirii.')
+end
+
+% Estimez constanta de timp din scaderea la 36.8% din varf
+prag_scadere = iesire_stationara + 0.368 * variatie_maxima_iesire
+
+indice_scadere_local = find( ...
+    iesire_primului_raspuns(indice_maxim_local:end) <= prag_scadere, 1)
+
+if isempty(indice_scadere_local)
+    error('Pragul de scadere nu a fost gasit dupa maximul primului raspuns.')
+end
+
+indice_scadere = indice_maxim_local + indice_scadere_local - 1
+
+timp_maxim = timp_primul_raspuns(indice_maxim_local)
+timp_scadere = timp_primul_raspuns(indice_scadere)
+constanta_timp = timp_scadere - timp_maxim
+
+%% Construirea functiei de transfer
+
+s = tf('s')
+functie_transfer = K_sistem / (constanta_timp * s + 1)
+model_spatiu_stari = ss(functie_transfer)
+
+disp('Castigul sistemului:')
+K_sistem
+
+disp('Constanta de timp:')
+constanta_timp
+
+disp('Functia de transfer identificata:')
+functie_transfer
+
+%% Validarea modelului cu impulsurile urmatoare
+
+% Pornesc modelul din regimul stationar produs de intrarea de baza
+stare_initiala = -model_spatiu_stari.A \ ...
+    (model_spatiu_stari.B * nivel_intrare_initial)
+
+iesire_simulata_completa = lsim( ...
+    model_spatiu_stari, intrare, timp_uniform, stare_initiala)
+
+% Validarea incepe de la al doilea impuls
+date_validare = timp_uniform >= timp_inceput_al_doilea_impuls
+
+timp_validare = timp_uniform(date_validare)
+iesire_real_validare = iesire_uniforma(date_validare)
+iesire_model_validare = iesire_simulata_completa(date_validare)
+
+eroare_medie_patratica = mean( ...
+    (iesire_real_validare - iesire_model_validare).^2)
+
+disp('Eroarea medie patratică pentru validare:')
+eroare_medie_patratica
+
+%% Graficul validarii
+
+figure
+plot(timp_validare, iesire_real_validare, 'b', ...
+     timp_validare, iesire_model_validare, 'r--', ...
+     'LineWidth', 1.2)
+title('Validarea modelului la raspunsul la impuls')
+xlabel('Timp [s]')
+ylabel('Amplitudine')
+legend('Iesire masurata', 'Iesire simulata')
+grid on
