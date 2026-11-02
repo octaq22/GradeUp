@@ -1,0 +1,115 @@
+%% Aproximarea unei functii cu doua intrari folosind polinoame
+% Scriptul presupune ca fisierul date.mat contine structurile id si val.
+% Fiecare structura trebuie sa aiba campurile X (cell cu doi vectori) si Y.
+% Daca fisierul are alt nume, modificati numele din linia de mai jos.
+
+clear;
+clc;
+close all;
+
+load('date.mat', 'id', 'val');
+
+gradeDeIncercat = 1:5;
+numarGrade = numel(gradeDeIncercat);
+eroareAntrenare = zeros(1, numarGrade);
+eroareValidare = zeros(1, numarGrade);
+modele = cell(1, numarGrade);
+
+% Convertim grilele de intrare in liste de puncte si tinte.
+[puncteAntrenare, valoriAntrenare] = pregatesteDate(id);
+[puncteValidare, valoriValidare] = pregatesteDate(val);
+
+for indexGrad = 1:numarGrade
+    gradCurent = gradeDeIncercat(indexGrad);
+
+    % Fiecare linie a matricei contine termenii polinomului pentru un punct.
+    matriceAntrenare = construiesteMatricePolinomiala(puncteAntrenare, gradCurent);
+    matriceValidare = construiesteMatricePolinomiala(puncteValidare, gradCurent);
+
+    % A gaseste coeficientii care minimizeaza suma patratelor erorilor.
+    coeficienti = matriceAntrenare \ valoriAntrenare;
+    predictiiAntrenare = matriceAntrenare * coeficienti;
+    predictiiValidare = matriceValidare * coeficienti;
+
+    eroareAntrenare(indexGrad) = mean((predictiiAntrenare - valoriAntrenare).^2);
+    eroareValidare(indexGrad) = mean((predictiiValidare - valoriValidare).^2);
+
+    modele{indexGrad} = struct('grad', gradCurent, 'coeficienti', coeficienti);
+end
+
+% Afisam erorile pentru a compara gradele si a observa posibila supraantrenare.
+disp(table(gradeDeIncercat(:), eroareAntrenare(:), eroareValidare(:), ...
+    'VariableNames', {'Grad', 'EroareAntrenare', 'EroareValidare'}));
+
+[~, indexCelMaiBun] = min(eroareValidare);
+modelAles = modele{indexCelMaiBun};
+fprintf('Gradul ales dupa eroarea de validare: %d\n', modelAles.grad);
+
+figure('Name', 'Comparatia erorilor');
+plot(gradeDeIncercat, eroareAntrenare, '-o', 'LineWidth', 1.5);
+hold on;
+plot(gradeDeIncercat, eroareValidare, '-s', 'LineWidth', 1.5);
+xlabel('Gradul polinomului');
+ylabel('Eroarea medie patratica');
+legend('Antrenare', 'Validare', 'Location', 'best');
+title('Alegerea gradului polinomului');
+grid on;
+
+% Reprezentam predictiile si valorile masurate pe grila fiecarui set.
+reprezintaRezultate(id, modelAles, 'Antrenare');
+reprezintaRezultate(val, modelAles, 'Validare');
+
+%% Functii locale
+function [puncte, valori] = pregatesteDate(setDate)
+    vectorIntrare1 = setDate.X{1}(:);
+    vectorIntrare2 = setDate.X{2}(:);
+    [grilaIntrare1, grilaIntrare2] = ndgrid(vectorIntrare1, vectorIntrare2);
+
+    puncte = [grilaIntrare1(:), grilaIntrare2(:)];
+    valori = setDate.Y(:);
+
+    if numel(valori) ~= size(puncte, 1)
+        error('Dimensiunile lui Y nu corespund grilei formate din X{1} si X{2}.');
+    end
+end
+
+function matricePolinomiala = construiesteMatricePolinomiala(puncte, gradMaxim)
+    intrare1 = puncte(:, 1);
+    intrare2 = puncte(:, 2);
+    matricePolinomiala = ones(size(puncte, 1), 1);
+
+    % Adaugam puterile pure, apoi termenii amestecati pentru fiecare grad.
+    for gradTermen = 1:gradMaxim
+        matricePolinomiala(:, end + 1) = intrare1.^gradTermen;
+        matricePolinomiala(:, end + 1) = intrare2.^gradTermen;
+
+        for putereIntrare1 = gradTermen-1:-1:1
+            putereIntrare2 = gradTermen - putereIntrare1;
+            matricePolinomiala(:, end + 1) = ...
+                intrare1.^putereIntrare1 .* intrare2.^putereIntrare2;
+        end
+    end
+end
+
+function reprezintaRezultate(setDate, model, numeSet)
+    [puncte, valoriReale] = pregatesteDate(setDate);
+    matricePolinomiala = construiesteMatricePolinomiala(puncte, model.grad);
+    valoriEstimate = matricePolinomiala * model.coeficienti;
+
+    valoriReale = reshape(valoriReale, numel(setDate.X{1}), numel(setDate.X{2}));
+    valoriEstimate = reshape(valoriEstimate, numel(setDate.X{1}), numel(setDate.X{2}));
+    [grilaIntrare1, grilaIntrare2] = ndgrid(setDate.X{1}(:), setDate.X{2}(:));
+
+    figure('Name', ['Rezultate - ' numeSet]);
+    subplot(1, 2, 1);
+    surf(grilaIntrare1, grilaIntrare2, valoriReale);
+    title(['Valori reale - ' numeSet]);
+    xlabel('x_1'); ylabel('x_2'); zlabel('f(x_1,x_2)');
+    shading interp;
+
+    subplot(1, 2, 2);
+    surf(grilaIntrare1, grilaIntrare2, valoriEstimate);
+    title(['Aproximare polinomiala - ' numeSet]);
+    xlabel('x_1'); ylabel('x_2'); zlabel('g(x_1,x_2)');
+    shading interp;
+end
