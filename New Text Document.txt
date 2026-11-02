@@ -1,0 +1,80 @@
+clear all;
+close all;
+clc;
+
+load('lab2_14.mat');
+
+x   =   id.X(:);
+y   =   id.Y(:);
+
+a   =   val.X(:);
+b   =   val.Y(:);
+
+
+figure
+plot(x,y);
+grid on;
+
+
+n  =  4;
+Phi_ex1I = [];
+for o = 0 : (n-1)
+    Phi_ex1I  =   [Phi_ex1I,x.^o]; end
+Theta_ex1  =  Phi_ex1I \ y;
+iesire_ex1I   =  Phi_ex1I * Theta_ex1;
+eroare_ex1I  =   mean((y - iesire_ex1I).^2);
+
+Phi_ex1V  =  [];
+for p = 0 : (n - 1)
+    Phi_ex1V = [Phi_ex1V, a.^p];end
+
+iesire_ex1V = Phi_ex1V * Theta_ex1;
+eroare_ex1V = mean((b - iesire_ex1V).^2);
+
+
+disp(Theta_ex1)
+disp(eroare_ex1I)
+disp(eroare_ex1V)
+
+
+
+n_maxim  =  25;
+val_eroareMedie  =  zeros(n_maxim,1);
+for j  =  1 : n_maxim 
+Phi_lab2Identificare  =  [];
+ for i   =   0:(j - 1)
+     Phi_lab2Identificare   =   [Phi_lab2Identificare, x.^i];  end
+
+ Theta_lab2    =   Phi_lab2Identificare  \  y;
+ iesire_estimataI   =   Phi_lab2Identificare  *  Theta_lab2;
+
+ eroareMediePatraticaIdentificare   =    mean((y - iesire_estimataI).^2);
+
+Phi_lab2Validare  =  [];
+ for h  =  0:(j - 1)
+     Phi_lab2Validare   =   [Phi_lab2Validare,a.^h]; end
+
+ iesire_estimataV  =  Phi_lab2Validare * Theta_lab2;
+ eroareMediePatraticaValidare  =  mean((b - iesire_estimataV).^2);
+ val_eroareMedie(j)    =   eroareMediePatraticaValidare;
+end
+
+
+disp(Theta_lab2);
+
+
+disp(eroareMediePatraticaIdentificare)
+disp(eroareMediePatraticaValidare)
+disp(min(val_eroareMedie))
+
+
+figure
+plot(1:n_maxim,val_eroareMedie);
+
+
+figure
+plot(a ,b ,'b');
+hold on
+plot(a,iesire_estimataV, 'r');
+
+
